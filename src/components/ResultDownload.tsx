@@ -52,6 +52,9 @@ const ResultDownload: React.FC<ResultDownloadProps> = ({ results }) => {
 
     // Count all Shopee links that were actually checked (have status column value)
     const checkedRows = results.processedData.filter(row => {
+      // Type guard to ensure linkKey is not undefined
+      if (!linkKey) return false;
+      
       const link = row[linkKey];
       const hasShopeeLink = link && typeof link === 'string' && link.toLowerCase().includes('shopee');
       const hasStatus = row[statusColumnKey] !== undefined && row[statusColumnKey] !== null;
