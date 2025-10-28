@@ -137,7 +137,16 @@ const FileUpload: React.FC<{
     workbook: XLSX.WorkBook
   ): Promise<{ processedData: ExcelRow[]; workbook: XLSX.WorkBook }> => {
     const linkColumnDisplayName = "Link tin bài đăng bán sản phẩm";
-    const statusColumnName = "Tình trạng link SP (tính đến 4/11/2025)";
+    const statusColumnKey = "__EMPTY_3"; // Fixed column for status
+
+    // Helper function to get column index from column key like __EMPTY_3
+    const getColumnIndex = (columnKey: string): number => {
+      if (columnKey.startsWith('__EMPTY_')) {
+        const num = parseInt(columnKey.replace('__EMPTY_', ''));
+        return num + 1; // __EMPTY_0 maps to column B (index 1), __EMPTY_1 to C (index 2), etc.
+      }
+      return 3; // Default to column D (index 3) for __EMPTY_3
+    };
 
     // Find the actual column key for "Link tin bài đăng bán sản phẩm"
     const sampleRow = data && data.length > 0 ? data[0] : {};
@@ -158,30 +167,52 @@ const FileUpload: React.FC<{
     if (!linkKey) linkKey = "__EMPTY_2";
 
     console.log(`Using column key: "${linkKey}" for Shopee links`);
+    console.log(`Status will be written to column: "${statusColumnKey}"`);
 
-    // Process each row
+    // Get the original worksheet to preserve formatting
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const range = XLSX.utils.decode_range(firstSheet['!ref'] || 'A1');
+    const statusColumnIndex = getColumnIndex(statusColumnKey);
+
+    // Process each row and update both JSON data and worksheet cells
     const processedData = await Promise.all(
       data.map(async (row, index) => {
         const link = row[linkKey as string];
-
-        // Create a copy of the row
         const newRow = { ...row };
+
+        let statusValue = "";
 
         // Check if the link exists and is a Shopee link
         if (link && typeof link === "string" && link.toLowerCase().includes("shopee")) {
           console.log(`Checking link ${index + 1}/${data.length}: ${link}`);
           const exists = await checkLink(link);
+          statusValue = exists ? "x" : "";
+        }
 
-          // Fill status column with 'x' if link exists
-          newRow[statusColumnName] = exists ? "x" : "";
+        // Update JSON data
+        newRow[statusColumnKey] = statusValue;
+        
+        // Update the original worksheet cell to preserve formatting
+        // +1 because we need to account for header row (JSON data starts from row 0, but Excel rows start from 1)
+        const cellAddress = XLSX.utils.encode_cell({ r: index + 1, c: statusColumnIndex });
+        
+        // Create or update cell while preserving any existing formatting
+        if (!firstSheet[cellAddress]) {
+          firstSheet[cellAddress] = { t: 's', v: statusValue };
         } else {
-          // If no valid Shopee link, leave status empty
-          newRow[statusColumnName] = "";
+          // Preserve existing cell properties (formatting) and only update value
+          firstSheet[cellAddress].v = statusValue;
         }
 
         return newRow;
       })
     );
+
+    // Update the worksheet range to include the status column if needed
+    if (statusColumnIndex > range.e.c) {
+      range.e.c = statusColumnIndex;
+      firstSheet['!ref'] = XLSX.utils.encode_range(range);
+    }
 
     return { processedData, workbook };
   };
@@ -197,6 +228,7 @@ const FileUpload: React.FC<{
         <div className="loading-info">
           <p>Đang kiểm tra từng trang sản phẩm Shopee...</p>
           <p>Quá trình này có thể mất vài phút tùy thuộc vào số lượng link.</p>
+          <p>Kết quả sẽ được điền vào cột __EMPTY_3 với định dạng Excel được giữ nguyên.</p>
           <p>Hệ thống sẽ truy cập trực tiếp vào từng link để kiểm tra tính khả dụng.</p>
         </div>
       )}
